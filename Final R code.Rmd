@@ -1,0 +1,1015 @@
+---
+title: "5205_Project_0427"
+author: "Shiyu Jiang, Danni Zhang"
+date: "2023-04-27"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+---
+
+# 1. Data
+
+## Import & Clean Dataset
+
+```{r}
+nrc = read.csv("/Users/jiangshiyu/Downloads/nrc.csv")
+bing = read.csv("~/Downloads/bing.csv")
+afinn = read.csv("/Users/jiangshiyu/Downloads/afinn.csv")
+
+```
+
+```{r}
+library(dplyr)
+
+tinder = read.csv("~/Downloads/Tinder_Cleaned_Data (2).csv")
+tinder <- tinder %>% 
+  mutate(id = row_number())
+
+str(tinder)
+```
+
+# 2. Overall Sentiment Analysis
+
+## Tokenize the reviews
+
+```{r}
+library(dplyr)
+library(tidytext)
+tinder %>%
+  select(id, content)%>%
+  group_by(id)%>%
+  unnest_tokens(output = word,input=content)%>%
+  ungroup()%>%
+  group_by(id)%>%
+  summarize(count = n())
+```
+
+### a. Bing
+
+```{r}
+# import "Bing" dictionary
+#bing = read.csv("~/Downloads/bing 1.csv")
+bing[1:50,]
+bing %>%
+  group_by(sentiment) %>%
+  count()
+```
+
+#### Valence of words in Tinder review content
+
+```{r}
+tinder %>%
+  group_by(id) %>%
+  unnest_tokens(output = word, input = content) %>%
+  inner_join(bing) %>%
+  group_by(sentiment)
+```
+
+#### Total number & proportion of positive and negative words in all review contents
+
+```{r}
+sentiment_data=tinder %>%
+  group_by(id) %>%
+  unnest_tokens(output = word, input = content) %>%
+  inner_join(bing) %>%
+  group_by(sentiment) %>%
+  summarize(n = n())%>%
+  mutate(proportion = n/sum(n))
+sentiment_data
+
+# create a pie chart
+library(ggplot2)
+ggplot(sentiment_data, aes(x="", y=proportion, fill=sentiment)) +
+  geom_bar(width = 1, stat = "identity") +
+  geom_text(aes(label = paste0(round(proportion * 100,2), "%")), position = position_stack(vjust = 0.5)) +
+  coord_polar("y", start=0) +
+  theme_void() +
+  scale_fill_manual(values=c("#d95475", "#98c39a")) +
+  labs(title = "Sentiment Proportions by Bing", fill = "Sentiment") +
+  theme(legend.position = "right")
+```
+
+#### Proportion of positive and negative words for each review score (1-5)
+
+```{r}
+tinder %>%
+  group_by(id, score) %>%
+  unnest_tokens(output = word, input = content) %>%
+  ungroup() %>%
+  inner_join(bing) %>%
+  group_by(score, sentiment) %>%
+  summarize(n = n())%>%
+  mutate(proportion = n/sum(n))
+```
+
+```{r}
+library(ggthemes)
+library(ggplot2)
+tinder %>%
+  group_by(id, score) %>%
+  unnest_tokens(output = word, input = content) %>%
+  ungroup() %>%
+  inner_join(bing) %>%
+  group_by(score, sentiment) %>%
+  summarize(n = n())%>%
+  mutate(proportion = n/sum(n)) %>%
+  ggplot(aes(x = score, y = proportion, fill = sentiment)) +
+  geom_col() +
+  theme_economist() +
+  coord_flip()
+```
+
+#### Proportion of positive and negative words for each review (content)
+
+```{r}
+tinder %>%
+  group_by(id, score)%>%
+  unnest_tokens(output = word, input = content)%>%
+  inner_join(bing)%>%
+  group_by(id, score)%>%
+  summarize(positive_words = sum(sentiment=='positive'),
+            negative_words = sum(sentiment=='negative'),
+            proportion_positive = positive_words/(positive_words + negative_words)) %>%
+  ungroup()
+```
+
+#### Correlation between proportion of positive words and review score
+
+```{r}
+tinder %>%
+  group_by(id, score)%>%
+  unnest_tokens(output = word, input = content)%>%
+  inner_join(bing)%>%
+  group_by(id, score)%>%
+  summarize(positive_words = sum(sentiment=='positive'),
+            negative_words = sum(sentiment=='negative'),
+            proportion_positive = positive_words/(positive_words + negative_words)) %>%
+  ungroup() %>%
+  summarize(correlation = cor(proportion_positive, score))
+```
+
+### b. nrc emotion
+
+```{r}
+#nrc = read.csv("～/Downloads/nrc.csv")
+head(nrc)
+nrc %>%
+  group_by(sentiment) %>%
+  count()
+```
+
+#### Emotions in all review content
+
+```{r}
+tinder %>%
+  group_by(id) %>%
+  unnest_tokens(output = word, input = content) %>%
+  inner_join(nrc) %>%
+  group_by(sentiment) %>%
+  count() %>%
+  arrange(desc(n))
+```
+
+#### Emotion in each review
+
+```{r}
+library(tidyr)
+tinder %>%
+  group_by(id, score) %>%
+  unnest_tokens(output = word, input = content) %>%
+  inner_join(nrc) %>%
+  group_by(id, score, sentiment) %>%
+  count() %>%
+  pivot_wider(names_from = sentiment, values_from = n) %>%
+  select(id, score, positive, negative, trust, anticipation, joy, fear, anger, sadness, surprise, disgust) %>%
+  mutate_at(.vars = 3:12, .funs = function(x) replace_na(x,0)) %>%
+  ungroup()
+#为啥第一条评论不见了啊？？？？
+```
+
+Score distribution of different emotion
+
+```{r}
+tinder %>%
+  group_by(id, score) %>%
+  unnest_tokens(output = word, input = content) %>%
+  inner_join(nrc) %>%
+  group_by(id, sentiment, score) %>%
+  count() %>%
+  group_by(id, sentiment, score) %>%
+  pivot_wider(names_from = sentiment, values_from = n) %>%
+  mutate_at(.vars = 3:12, .funs = function(x) replace_na(x,0)) %>%
+  ungroup() %>%
+  pivot_longer(cols = anticipation: disgust, names_to = 'sentiment',values_to = 'n')%>%
+  group_by(sentiment, score)%>%
+  summarize(n = mean(n))
+```
+
+```{r}
+tinder %>%
+  group_by(id, score) %>%
+  unnest_tokens(output = word, input = content) %>%
+  inner_join(nrc) %>%
+  group_by(id, sentiment, score) %>%
+  count() %>%
+  group_by(id, sentiment, score) %>%
+  pivot_wider(names_from = sentiment, values_from = n) %>%
+  mutate_at(.vars = 3:12, .funs = function(x) replace_na(x,0)) %>%
+  ungroup() %>%
+  pivot_longer(cols = anticipation: disgust, names_to = 'sentiment',values_to = 'n') %>%
+  group_by(sentiment, score) %>%
+  summarize(n = mean(n)) %>%
+  ggplot(aes(x = score, y = n, fill = score)) +
+  geom_col() + 
+  facet_wrap(~sentiment) +
+  guides(fill = "none") +
+  coord_flip() +
+  theme_bw()
+
+```
+
+#### Correlation between frequency of different emotions and review scores
+
+```{r}
+tinder %>%
+  group_by(id, score) %>%
+  unnest_tokens(output = word, input = content) %>%
+  inner_join(nrc) %>%
+  group_by(id, sentiment, score) %>%
+  count() %>%
+  group_by(id, sentiment, score) %>%
+  pivot_wider(names_from = sentiment, values_from = n) %>%
+  mutate_at(.vars = 3:12, .funs = function(x) replace_na(x,0)) %>%
+  ungroup() %>%
+  pivot_longer(cols = anticipation: disgust, names_to = 'sentiment',values_to = 'n') %>%
+  group_by(sentiment) %>%
+  summarize('Correlation with rating' = round(cor(n, score), 2),
+            p = ifelse(cor.test(n, score)$p.value<0.05, 'p < 0.05', 'not significant'))
+```
+
+### c. afinn
+
+```{r}
+#afinn = read.csv("/Users/dorisz/Desktop/Columbia_University/5205 F2.-4./Group Project/afinn.csv")
+afinn[1:50,]
+```
+
+#### Sentiment score of all reviews
+
+```{r}
+tinder %>%
+  select(id, content) %>%
+  group_by(id) %>%
+  unnest_tokens(output = word, input = content) %>%
+  inner_join(afinn) %>%
+  summarize(reviewSentiment = mean(value)) %>%
+  ungroup() %>%
+  summarize(min=min(reviewSentiment),
+            max=max(reviewSentiment),
+            median=median(reviewSentiment),
+            mean=mean(reviewSentiment))
+```
+
+#### Correlation between sentiment score and revire score
+
+```{r}
+tinder %>%
+  select(id, content, score) %>%
+  group_by(id, score) %>%
+  unnest_tokens(output = word, input = content) %>%
+  inner_join(afinn) %>%
+  summarize(reviewSentiment = mean(value)) %>%
+  ungroup() %>%
+  summarize(correlation = cor(reviewSentiment, score))
+```
+
+### Word Cloud
+
+#### Frequency-based
+
+```{r}
+library(tidyr)
+library(wordcloud)
+remove_words = c("app")
+wordcloud_data= 
+  tinder %>%
+  group_by(id) %>%
+  unnest_tokens(output = word,input = content) %>%
+  ungroup() %>%
+  select(id, word) %>%
+  anti_join(stop_words) %>%
+  group_by(word) %>%
+  summarize(freq = n()) %>%
+  arrange(desc(freq)) %>%
+  ungroup() %>%
+  data.frame()
+
+
+library(wordcloud)
+set.seed(5205)
+wordcloud(words = wordcloud_data$word, wordcloud_data$freq, scale = c(2, 0.5), max.words = 100, colors = brewer.pal(9, "Spectral"))
+```
+
+#### Comparing positive and negative words
+
+```{r}
+library(tidyr)
+library(wordcloud)
+wordcloud_data= 
+  tinder %>%
+  group_by(id) %>%
+  unnest_tokens(output = word,input = content) %>%
+  ungroup() %>%
+  inner_join(bing, by = 'word') %>%
+  count(sentiment, word, sort = T) %>%
+  ungroup() %>%
+  spread(key = sentiment, value = 'n', fill = 0)
+
+wordcloud_data= as.data.frame(wordcloud_data)
+rownames(wordcloud_data) = wordcloud_data[,'word']
+wordcloud_data = wordcloud_data[,c('positive','negative')]
+comparison.cloud(wordcloud_data,scale=c(2,0.5),max.words = 150,rot.per = 0)  
+```
+
+# 3. Topic Model
+
+## a. Topic Model of Different Scores
+
+### Q: What are the rationale behind user scoring? What features lead to higher/lower scores?
+
+We first look at the bar plot for score:
+
+```{r}
+# Bar plot for score(1-5)
+library(ggplot2)
+# create the table of frequencies
+score_table <- table(tinder$score)
+# convert the table to a data frame
+score_df <- data.frame(score = names(score_table), count = as.vector(score_table))
+# create the bar plot using ggplot
+ggplot(data = score_df, aes(x = score, y = count)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = count), vjust = -0.5) +
+  labs(title = "Score Distribution", x = "Score", y = "Count") +
+  theme_classic()
+```
+
+### Create a corpus
+
+```{r}
+library(tm)
+library(SnowballC)
+library(magrittr)
+
+# Create corpus for all
+corpus <-
+  Corpus(VectorSource(tinder$content)) %>%
+  tm_map(content_transformer(tolower)) %>% #convert to lower case
+  tm_map(removeWords, c(stopwords('english'),'tinder','app')) %>%  #Remove stopwords
+  tm_map(removePunctuation) %>%   #Remove punctuation
+  tm_map(content_transformer(FUN = function(x)gsub(pattern = 'http[[:alnum:][:punct:]]*', replacement = ' ',x = x))) %>% # Match pattern and replace url with blank space.
+  tm_map(removeNumbers) # remove number ???
+
+# divide corpus to 3 category: Score <3, Score=3, Score >3
+corpus_u3 <- corpus[which(tinder$score < 3)]
+corpus_e3 <- corpus[which(tinder$score == 3)]
+corpus_a3 <- corpus[which(tinder$score > 3)]
+
+corpus_u3 <- corpus_u3 %>%
+  tm_map(stemDocument) %>%
+  tm_map(stripWhitespace)
+
+corpus_e3 <- corpus_e3 %>%
+  tm_map(stemDocument) %>%
+  tm_map(stripWhitespace)
+
+corpus_a3 = corpus_a3 %>%
+  tm_map(stemDocument) %>%
+  tm_map(stripWhitespace)
+
+```
+
+### Create a dictionary
+
+```{r}
+# Create a dictionary
+dict_u3 = findFreqTerms(DocumentTermMatrix(Corpus(VectorSource(tinder[tinder$score<3,]$content))), lowfreq = 0)
+dict_corpus_u3 = Corpus(VectorSource(dict_u3))
+
+dict_e3 = findFreqTerms(DocumentTermMatrix(Corpus(VectorSource(tinder[tinder$score==3,]$content))), lowfreq = 0)
+dict_corpus_e3 = Corpus(VectorSource(dict_e3))
+
+dict_a3 = findFreqTerms(DocumentTermMatrix(Corpus(VectorSource(tinder[tinder$score>3,]$content))), lowfreq = 0)
+dict_corpus_a3 = Corpus(VectorSource(dict_a3))
+```
+
+### Create a document term matrix (tokenize)
+
+```{r}
+# def a function to create document matrix
+termMatrix <- function(corpus, dict_corpus){
+  dtm = DocumentTermMatrix(x=corpus)
+  xdtm = removeSparseTerms(dtm,sparse = 0.98)
+  xdtm = as.data.frame(as.matrix(xdtm))
+  colnames(xdtm) = stemCompletion(x = colnames(xdtm),
+                                  dictionary = dict_corpus,
+                                  type='prevalent')
+  colnames(xdtm) = make.names(colnames(xdtm))
+  return(xdtm)
+  }
+
+## document term matrix for Score under 3
+xdtm_u3=termMatrix(corpus_u3,dict_corpus_u3)
+# sort(colSums(xdtm_u3),decreasing = T)
+
+## document term matrix for Score equal 3
+xdtm_e3=termMatrix(corpus_e3,dict_corpus_e3)
+# sort(colSums(xdtm_e3),decreasing = T)
+
+## document term matrix for Score above 3
+xdtm_a3=termMatrix(corpus_a3,dict_corpus_a3)
+#sort(colSums(xdtm_a3),decreasing = T)
+```
+
+### Topic Model for differnt rating score
+
+Topic models can only work with non-zero documents, so remove documents with all zeros.
+
+```{r}
+# remove documents with all zeros for score under 3
+xdtm_topic_u3 = xdtm_u3[rowSums(xdtm_u3) != 0, ]
+# remove documents with all zeros for score equal 3
+xdtm_topic_e3 = xdtm_e3[rowSums(xdtm_e3)!=0, ]
+# remove documents with all zeros for score above 3
+xdtm_topic_a3 = xdtm_a3[rowSums(xdtm_a3)!=0, ]
+```
+
+```{r}
+library(topicmodels)
+set.seed(5205)
+topic2_u3 = LDA(x = xdtm_topic_u3,k = 6)
+topic2_e3 = LDA(x = xdtm_topic_e3,k = 6)
+topic2_a3 = LDA(x = xdtm_topic_a3,k = 6)
+# Top 15 terms in each topic
+terms(topic2_u3, 15)
+# length(unique(topic2_u3@terms)) # 119
+
+terms(topic2_e3, 15)
+# length(unique(topic2_e3@terms)) #87
+
+terms(topic2_a3, 15)
+# length(unique(topic2_a3@terms)) # 29
+
+```
+
+#### Visualize: for rating under 3
+
+Compare betas and only keep beta_spread values that are outside of +/- 2\*sd from mean.
+
+```{r}
+library(tidytext); library(dplyr); library(ggplot2); library(tidyr)
+topic2_u3 %>%
+  tidy(matrix='beta')%>%
+  group_by(topic)%>%
+  top_n(n = 15,wt=beta)%>%
+  ungroup()%>%
+  ggplot(aes(x=reorder(term,beta),y=beta,fill=factor(topic)))+
+  geom_bar(position='dodge', stat='identity')+
+  facet_wrap(~topic, scales = 'free')+
+  coord_flip()+guides(fill=F)+xlab('')
+```
+
+#### Interpret Topic Model for Score Under 3:
+
+Topic 1: This topic seems to be related to issues with fake accounts, bans, and deletions.
+
+Topic 2: This topic is related to the technical aspects of the app, including logins, updates, and crashes.
+
+Topic 3: This topic seems to be related to user interactions, including matches, profiles, and messaging.
+
+Topic 4: This topic is related to issues with payments, trials, and subscriptions.
+
+Topic 5: This topic is also related to user interactions, with terms like “people”, “matching”, and “accounts” being prominent.
+
+Topic 6: This topic seems to be related to general user experience issues, including time wasted, money spent, and work required.
+
+
+#### Interpretion for Score equal 3:
+
+Topic 1: This topic seems to be about using the app “like” a pro, with terms such as “like,” “super,” “good,” and “just.” It also includes terms related to using the app for meeting people, such as “match” and “people.”
+
+Topic 2: This topic is about messaging, with terms such as “message,” “get,” and “see.” It could be related to issues or features related to messaging within the app.
+
+Topic 3: This topic is about using the app efficiently, with terms such as “time,” “fix,” and “can.” It could be related to user experience and user interface issues.
+
+Topic 4: This topic seems to be about managing one’s profile and account, with terms such as “profil.” (presumably “profile”), “good,” “great,” and “phone.” It could be related to issues or features related to managing one’s profile or account within the app.
+
+Topic 5: This topic seems to be about the matching algorithm, with terms such as “match,” “work,” and “use.” It could be related to issues or feedback related to the app’s matching algorithm.
+
+Topic 6: This topic is about various issues related to using the app, such as crashes (“crash”), notifications (“notification”), and swiping (“swipe”). It also includes terms related to paying for the app (“pay”) and using the app for dating (“trial”).
+
+
+
+
+#### Interpret Topic Model for Score above 3:
+
+Topic 1: This topic seems to be associated with positive experiences and emotions, with words like “good,” “love,” and “great” appearing frequently.
+
+Topic 2: This topic seems to be more focused on practical aspects of using a dating app, with words like “best,” “people,” and “use” appearing frequently.
+
+Topic 3: This topic seems to be associated with general liking or preference, with words like “like,” “match,” and “just” appearing frequently.
+
+Topic 4: This topic seems to be associated with meeting people in real life, with words like “people,” “use,” and “meet” appearing frequently.
+
+Topic 5: This topic seems to be associated with ease or convenience, with words like “nice,” “good,” and “easier” appearing frequently.
+
+Topic 6: This topic seems to be associated with fun or enjoyment, with words like “good,” “new,” and “fun” appearing frequently.
+
+## b. Topic Model: User rating score and Sentiment score of Different Versions
+
+### Number of reviews by Version
+
+```{r}
+v_count = tinder %>%
+  select(X, content, version) %>%
+  group_by(version) %>%
+  count()
+
+v_count
+```
+
+### Mean rating score by Version
+
+```{r}
+v_mean_score = tinder %>%
+  select(X, content, version, score) %>%
+  group_by(version) %>%
+  summarise(mean_score = mean(score))
+
+v_mean_score
+```
+
+### Mean sentiment score by Version
+
+```{r}
+v_sent_score = tinder %>%
+  select(X, content, version) %>%
+  group_by(version) %>%
+  unnest_tokens(output = word, input = content) %>%
+  inner_join(afinn) %>%
+  summarize(reviewSentiment = mean(value))
+
+v_sent_score
+```
+
+### Combine the results
+
+```{r}
+v_score_sent = merge(v_count, merge(v_mean_score, v_sent_score, by = "version"), by = "version")
+
+v_score_sent
+```
+
+### Visualization
+
+```{r}
+# Visualization
+ggplot(v_score_sent, aes(x = version)) +
+  geom_line(aes(y = mean_score, color = "mean_score")) +
+  geom_point(aes(y = mean_score, color = "mean_score")) +
+  geom_line(aes(y = reviewSentiment, color = "sentiment_score")) +
+  geom_point(aes(y = reviewSentiment, color = "sentiment_score")) +
+  labs(color = "Variable", x = "version", y = "score") + 
+  scale_x_continuous(limits = c(1, 14), breaks = 1:14) + 
+  theme_bw()
+```
+
+### Building Topic Models for version
+
+```{r}
+corpus_v3 <- corpus[which(tinder$version == 3)]
+
+corpus_v4 <- corpus[which(tinder$version == 4)]
+
+corpus_v7 <- corpus[which(tinder$version == 7)]
+
+corpus_v13 <- corpus[which(tinder$version == 13)]
+```
+
+```{r}
+dict_v3 = findFreqTerms(DocumentTermMatrix(Corpus(VectorSource(tinder[tinder$version == 3,]$content))), lowfreq = 0)
+dict_corpus_v3 = Corpus(VectorSource(dict_v3))
+
+dict_v4 = findFreqTerms(DocumentTermMatrix(Corpus(VectorSource(tinder[tinder$version == 4,]$content))), lowfreq = 0)
+dict_corpus_v4 = Corpus(VectorSource(dict_v4))
+
+
+dict_v7 = findFreqTerms(DocumentTermMatrix(Corpus(VectorSource(tinder[tinder$version == 7,]$content))), lowfreq = 0)
+dict_corpus_v7 = Corpus(VectorSource(dict_v7))
+
+dict_v13 = findFreqTerms(DocumentTermMatrix(Corpus(VectorSource(tinder[tinder$version == 13,]$content))), lowfreq = 0)
+dict_corpus_v13 = Corpus(VectorSource(dict_v13))
+```
+
+```{r}
+termMatrix <- function(corpus, dict_corpus){
+  dtm = DocumentTermMatrix(x=corpus)
+  xdtm = removeSparseTerms(dtm,sparse = 0.98)
+  xdtm = as.data.frame(as.matrix(xdtm))
+  colnames(xdtm) = stemCompletion(x = colnames(xdtm),
+                                  dictionary = dict_corpus,
+                                  type='prevalent')
+  colnames(xdtm) = make.names(colnames(xdtm))
+  return(xdtm)
+  }
+
+xdtm_v3 = termMatrix(corpus_v3, dict_corpus_v3)
+
+xdtm_v4 = termMatrix(corpus_v4, dict_corpus_v4)
+
+xdtm_v7 = termMatrix(corpus_v7, dict_corpus_v7)
+
+xdtm_v13 = termMatrix(corpus_v13, dict_corpus_v13)
+```
+
+```{r}
+xdtm_topic_v3 = xdtm_v3[rowSums(xdtm_v3) != 0, ]
+
+xdtm_topic_v4 = xdtm_v4[rowSums(xdtm_v4)!=0, ]
+
+xdtm_topic_v7 = xdtm_v7[rowSums(xdtm_v7)!=0, ]
+
+xdtm_topic_v13 = xdtm_v7[rowSums(xdtm_v7)!=0, ]
+```
+
+```{r}
+library(topicmodels)
+set.seed(5205)
+topic6_v3 = LDA(x = xdtm_topic_v3, k = 6)
+topic6_v4 = LDA(x = xdtm_topic_v4, k = 6)
+topic6_v7 = LDA(x = xdtm_topic_v7, k = 6)
+topic6_v13 = LDA(x = xdtm_topic_v13, k = 6)
+```
+
+#### i. Version 3
+
+```{r}
+terms(topic6_v3, 15)
+```
+
+##### Visualize Topic Model for Version 3:
+
+```{r}
+library(tidytext); library(dplyr); library(ggplot2); library(tidyr)
+topic6_v3 %>%
+  tidy(matrix='beta')%>%
+  group_by(topic)%>%
+  top_n(n = 15,wt=beta)%>%
+  ungroup()%>%
+  ggplot(aes(x=reorder(term,beta),y=beta,fill=factor(topic)))+
+  geom_bar(position='dodge', stat='identity')+
+  facet_wrap(~topic, scales = 'free')+
+  coord_flip()+guides(fill=F)+xlab('')
+```
+
+##### Interpret Topic Model for Version 3:
+
+Topic 1: This topic seems to be related to people having fun and meeting others. The words "people," "fun," "meet," and "just" suggest some kind of social activity or gathering, while "nice," "profile," and "phone" imply that this might be happening through a dating app or social media platform. Overall, this topic seems to be about the social aspect of using a dating app or similar service.
+
+Topic 2: This topic appears to be focused on positive attributes of people, such as being good, cool, or even just even. The words "nice," "good," "even," and "cool" all suggest positive qualities, while "people," "facebook," and "phone" imply that these qualities are being observed or discussed in the context of social media or online interactions. This topic seems to be about how people are perceived or judged based on their online presence or behavior.
+
+Topic 3: This topic is about getting something, whether it's a match, a message, or a Facebook update. The words "get," "like," "one," and "really" all suggest some kind of transaction or exchange, while "matches," "message," and "Facebook" imply that this is happening through a specific platform or service. This topic seems to be about the process of using a social media or dating app, and the various outcomes or interactions that can result.
+
+Topic 4: This topic seems to be focused on using some kind of service or platform, potentially related to social media or dating. The words "matches," "Facebook," "update," and "easy" all suggest a specific digital environment or tool, while "use," "can," and "just" imply that this is an activity or behavior that people engage in. This topic seems to be about the experience of using a particular app or platform, and the various features and functions that it provides. Topic 5: This topic is about positive attributes of things, such as being good or cool. The words "good," "work," "love," and "cool" suggest some kind of evaluation or assessment, while "way," "new," and "back" imply that these attributes are related to a specific experience or product. This topic seems to be about the general quality or appeal of something, potentially a dating app or social media platform.
+
+Topic 6: This topic appears to be related to people finding love and spending time together. The words "people," "great," "love," and "meet" all suggest some kind of romantic or social connection, while "way," "new," and "time" imply that this is a specific experience or process. This topic seems to be about the more substantive aspects of using a dating app or social media platform, such as actually finding a partner and spending time with them in real life.
+
+#### ii. Version 4
+
+```{r}
+terms(topic6_v4, 15)
+```
+
+##### Visualize Topic Model for Version 4:
+
+```{r}
+library(tidytext); library(dplyr); library(ggplot2); library(tidyr)
+topic6_v4 %>%
+  tidy(matrix='beta')%>%
+  group_by(topic)%>%
+  top_n(n = 15,wt=beta)%>%
+  ungroup()%>%
+  ggplot(aes(x=reorder(term,beta),y=beta,fill=factor(topic)))+
+  geom_bar(position='dodge', stat='identity')+
+  facet_wrap(~topic, scales = 'free')+
+  coord_flip()+guides(fill=F)+xlab('')
+```
+
+##### Interpret Topic Model for Version 4:
+
+Topic 1: This topic is related to expressing interest in someone or something. The most frequent words are "like," "fix," and "please." Users may be asking for improvements or changes to the app, or expressing their interest in finding matches.
+
+Topic 2: This topic is related to app updates and improvements. The most frequent words are "just," "update," and "great." Users may be commenting on recent changes to the app or suggesting improvements.
+
+Topic 3: This topic is related to positive experiences with the app. The most frequent words are "good," "people," and "use." Users may be sharing their satisfaction with the app and its features.
+
+Topic 4: This topic is related to issues or problems with the app. The most frequent words are "people," "facebook," and "just." Users may be reporting problems with the app, such as crashes or login issues.
+
+Topic 5: This topic is related to the frequency of matches or likes. The most frequent words are "people," "matches," and "time." Users may be commenting on the number or quality of matches they are receiving.
+
+Topic 6: This topic is related to using the app and its features. The most frequent words are "get," "use," and "facebook." Users may be discussing how to use certain features or asking for help using the app.
+
+#### iii.Version 7
+
+```{r}
+terms(topic6_v7, 15)
+```
+
+##### Visualize Topic Model for Version 7:
+
+```{r}
+library(tidytext); library(dplyr); library(ggplot2); library(tidyr)
+topic6_v7 %>%
+  tidy(matrix='beta')%>%
+  group_by(topic)%>%
+  top_n(n = 15,wt=beta)%>%
+  ungroup()%>%
+  ggplot(aes(x=reorder(term,beta),y=beta,fill=factor(topic)))+
+  geom_bar(position='dodge', stat='identity')+
+  facet_wrap(~topic, scales = 'free')+
+  coord_flip()+guides(fill=F)+xlab('')
+```
+
+##### Interpret Topic Model for Version 7:
+
+Topic 1: This topic seems to be about users experiencing some kind of issue or problem with the app, such as something going wrong, a login issue, or a bug with the app's logging system.
+
+Topic 2: This topic is more positive and seems to be about users who are happy with the app's features and functionality. Users are describing the app as "great" and "awesome."
+
+Topic 3: This topic is similar to the first topic, with users expressing frustration with other users they've encountered on the app. Words like "people" and "matches" appear frequently.
+
+Topic 4: This topic seems to be about users experiencing problems with their account, such as login issues or problems with their profile.
+
+Topic 5: This topic is focused on people's overall experiences with the app, including their interactions with other users, and their general impression of the app. Words like "like" and "just" appear frequently.
+
+Topic 6: This topic appears to be about users who have encountered fake profiles or other fraudulent activity on the app. Words like "fake" and "like" appear frequently, indicating that users may be frustrated or suspicious of some users they have encountered.
+
+#### iv. Version 13
+
+```{r}
+terms(topic6_v13, 15)
+```
+
+##### Visualize Topic Model for Version 13:
+
+```{r}
+library(tidytext); library(dplyr); library(ggplot2); library(tidyr)
+topic6_v13 %>%
+  tidy(matrix='beta')%>%
+  group_by(topic)%>%
+  top_n(n = 15,wt=beta)%>%
+  ungroup()%>%
+  ggplot(aes(x=reorder(term,beta),y=beta,fill=factor(topic)))+
+  geom_bar(position='dodge', stat='identity')+
+  facet_wrap(~topic, scales = 'free')+
+  coord_flip()+guides(fill=F)+xlab('')
+```
+
+##### Interpret Topic Model for Version 13:
+
+Topic 1 seems to be about something in general, perhaps referring to a feature or aspect of Tinder that is not specified.
+
+Topic 2 is positive and talks about something being great. This could refer to a positive experience on the app or a specific feature that users find useful.
+
+Topic 3 seems to be about the functionality of the app, with words like "log" and "using" appearing. Users may be talking about how well the app works or any issues they have encountered while using it.
+
+Topic 4 mentions the word "account" and "get" which could be related to issues with logging in or accessing their account. Users may be discussing problems they've had with their accounts or how easy it is to create one.
+
+Topic 5 talks about "people" and "matches" which are central to the experience of using Tinder. Users may be discussing their success in finding matches or their general experience with the app's matching system.
+
+Topic 6 seems to be about negative experiences with the app, with words like "fake" and "wrong" appearing. Users may be discussing issues with fake profiles or other negative experiences they've had while using the app.
+
+# 4. Predictive Analysis
+
+## Preparation
+
+### Data clean & tokenize
+
+```{r}
+library(tm)
+library(SnowballC)
+library(magrittr)
+
+# Clean Text
+corpus =
+  Corpus(VectorSource(tinder$content)) %>%
+  tm_map(content_transformer(tolower)) %>% 
+  tm_map(removeWords, c(stopwords('english'), 'tinder', 'app')) %>% 
+  tm_map(removePunctuation) %>%  
+  tm_map(content_transformer(FUN = function(x)gsub(pattern = 'http[[:alnum:][:punct:]]*', replacement = ' ',x = x))) %>%
+  tm_map(removeNumbers)
+
+# Create a dictionary
+dict = findFreqTerms(DocumentTermMatrix(Corpus(VectorSource(tinder$content))),
+                     lowfreq = 0)
+dict_corpus = Corpus(VectorSource(dict))
+
+corpus = corpus %>%
+  tm_map(stemDocument) %>%
+  tm_map(stripWhitespace)
+```
+
+### Create a Document-term Matrix
+
+```{r}
+dtm = DocumentTermMatrix(x=corpus)
+xdtm = removeSparseTerms(dtm,sparse = 0.98)
+xdtm = as.data.frame(as.matrix(xdtm))
+colnames(xdtm) = stemCompletion(x = colnames(xdtm),
+                                dictionary = dict_corpus,
+                                type='prevalent')
+colnames(xdtm) = make.names(colnames(xdtm))
+sort(colSums(xdtm),decreasing = T)
+```
+
+### Document-term Matrix - tfidf
+
+```{r}
+dtm_tfidf = DocumentTermMatrix(x=corpus,
+                               control = list(weighting=function(x) weightTfIdf(x,normalize=F)))
+xdtm_tfidf = removeSparseTerms(dtm_tfidf,sparse = 0.98)
+xdtm_tfidf = as.data.frame(as.matrix(xdtm_tfidf))
+colnames(xdtm_tfidf) = stemCompletion(x = colnames(xdtm_tfidf),
+                                      dictionary = dict_corpus,
+                                      type='prevalent')
+colnames(xdtm_tfidf) = make.names(colnames(xdtm_tfidf))
+sort(colSums(xdtm_tfidf),decreasing = T)
+```
+
+### Weighting comparison
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+
+data.frame(term = colnames(xdtm),tf = colMeans(xdtm), tfidf = colMeans(xdtm_tfidf)) %>%
+  arrange(desc(tf)) %>%
+  top_n(20) %>%
+  gather(key=weighting_method,value=weight,2:3) %>%
+  ggplot(aes(x=term,y=weight,fill=weighting_method)) +
+  geom_col(position='dodge') +
+  coord_flip() +
+  theme_economist()
+
+```
+
+### a. Predictive Model (TF features)
+
+```{r}
+tinder_data = cbind(score = tinder$score,xdtm)
+tinder_data_tfidf = cbind(score = tinder$score,xdtm_tfidf)
+```
+
+#### Split Data
+
+```{r}
+set.seed(5205)
+split = sample(1:nrow(tinder_data),size = 0.7*nrow(tinder_data))
+train1 = tinder_data[split,]
+test1 = tinder_data[-split,]
+```
+
+#### i. CART
+
+```{r}
+library(rpart)
+library(rpart.plot)
+# Model
+model = rpart(score~., train1)
+tree_tf = prune(model, cp = 0.02, maxdepth = 2)
+rpart.plot(tree_tf)
+tree_tf
+```
+
+##### Prediction
+
+On train data
+
+```{r}
+# train data
+pred_train_tree_tf = predict(tree_tf)
+rmse_train_tree_tf = sqrt(mean((pred_train_tree_tf - train1$score)^2))
+rmse_train_tree_tf
+```
+
+On test data
+
+```{r}
+# test data
+pred_test_tree_tf = predict(tree_tf, newdata = test1)
+rmse_test_tree_tf = sqrt(mean((pred_test_tree_tf - test1$score)^2))
+rmse_test_tree_tf
+
+```
+
+#### ii. Regression Model
+
+```{r}
+# Model
+reg_tf = lm(score~.,train1)
+summary(reg_tf)
+```
+
+##### Prediction
+
+On train data:
+
+```{r}
+# train data
+pred_train_reg_tf = predict(reg_tf)
+rmse_train_reg_tf = sqrt(mean((pred_train_reg_tf - train1$score)^2))
+rmse_train_reg_tf
+```
+
+On test data:
+
+```{r}
+# test data
+pred_test_reg_tf = predict(reg_tf, newdata = test1)
+rmse_test_reg_tf = sqrt(mean((pred_test_reg_tf - test1$score)^2))
+rmse_test_reg_tf
+```
+
+### b. Predictive Model (TF-IDF features)
+
+#### Split data
+
+```{r}
+set.seed(5205)
+split = sample(1:nrow(tinder_data_tfidf), size = 0.7*nrow(tinder_data_tfidf))
+train2 = tinder_data_tfidf[split,]
+test2 = tinder_data_tfidf[-split,]
+```
+
+#### i. CART
+
+```{r}
+library(rpart)
+library(rpart.plot)
+# Model
+model = rpart(score~., train2)
+tree_tfidf = prune(model, cp = 0.02, maxdepth = 2)
+rpart.plot(tree_tfidf)
+```
+
+##### Prediction
+
+On train data:
+
+```{r}
+# train data
+pred_train_tree_tfidf = predict(tree_tfidf)
+rmse_train_tree_tfidf = sqrt(mean((pred_train_tree_tfidf - train2$score)^2))
+rmse_train_tree_tfidf
+```
+
+On test data:
+
+```{r}
+# test data
+pred_test_tree_tfidf = predict(tree_tfidf, newdata = test2)
+rmse_test_tree_tfidf = sqrt(mean((pred_test_tree_tfidf - test2$score)^2))
+rmse_test_tree_tfidf
+```
+
+#### ii. Regression
+
+```{r}
+# Model
+reg_tfidf = lm(score~., train2)
+summary(reg_tfidf)
+```
+
+##### Prediction
+
+On train data:
+
+```{r}
+# test data
+pred_train_reg_tfidf = predict(reg_tfidf)
+rmse_train_reg_tfidf = sqrt(mean((pred_train_reg_tfidf - train2$score)^2))
+rmse_train_reg_tfidf
+```
+
+On test data:
+
+```{r}
+# test data
+pred_test_reg_tfidf = predict(reg_tfidf, newdata = test2)
+rmse_test_reg_tfidf = sqrt(mean((pred_test_reg_tfidf - test2$score)^2))
+rmse_test_reg_tfidf
+```
